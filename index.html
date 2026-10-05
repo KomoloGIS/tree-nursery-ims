@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tree Nursery Information Management System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* ---- Colours: edit these to rebrand ---- */
+  :root{--bark:#22301f;--leaf:#4d8b3a;--soil:#9a5b34;--paper:#f6f7f2;--line:#d9dccf;--ink:#1d241b}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Public Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper);display:flex;flex-direction:column;height:100vh}
+  header{background:var(--bark);color:#fff;padding:12px 20px}
+  header h1{margin:0;font:600 1.35rem 'Fraunces',Georgia,serif}
+  header p{margin:2px 0 0;font-size:.85rem;opacity:.75}
+  .layout{flex:1;display:grid;grid-template-columns:270px 1fr;min-height:0}
+  aside{padding:16px;border-right:1px solid var(--line);overflow-y:auto;background:#fff}
+  aside h2{font-size:.95rem;margin:16px 0 6px}
+  aside h2:first-child{margin-top:0}
+  label.chk{display:block;font-size:.88rem;padding:2px 0}
+  .range label{display:flex;justify-content:space-between;font-size:.88rem}
+  input[type=range]{width:100%;accent-color:var(--leaf)}
+  button{font:inherit;font-size:.88rem;padding:7px 12px;border:1px solid var(--leaf);background:#fff;color:var(--leaf);border-radius:4px;cursor:pointer;margin:12px 6px 0 0}
+  button.primary{background:var(--leaf);color:#fff}
+  button:focus-visible,input:focus-visible{outline:3px solid var(--soil);outline-offset:2px}
+  main{display:grid;grid-template-rows:auto 1fr 230px;gap:12px;padding:12px;min-height:0;min-width:0}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .kpi{border-left:4px solid var(--leaf);background:#fff;padding:8px 12px}
+  .kpi b{display:block;font-size:1.5rem}
+  .kpi span{font-size:.8rem;color:#5b6557}
+  #map{border:1px solid var(--line);min-height:240px}
+  .bottom{display:grid;grid-template-columns:1fr 1.4fr;gap:12px;min-height:0}
+  .panel{background:#fff;border:1px solid var(--line);padding:8px;overflow:auto;min-width:0}
+  table{border-collapse:collapse;width:100%;font-size:.8rem}
+  th,td{padding:4px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{position:sticky;top:0;background:#eef1e6;cursor:pointer}
+  .contact button{margin:4px 0;padding:3px 8px}
+  .contact a{font-size:1.4rem;text-decoration:none;margin-right:8px}
+  .legend{font-size:.8rem;margin-top:6px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 8px}
+  @media(max-width:850px){.layout{grid-template-columns:1fr;overflow-y:auto}aside{border-right:0}.bottom{grid-template-columns:1fr}main{grid-template-rows:auto 320px 460px}.kpis{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tree Nursery Information Management System</h1>
+  <p>Lake Victoria Basin counties, western Kenya. Demo data.</p>
+</header>
+
+<div class="layout">
+  <aside>
+    <h2>Counties</h2>
+    <div id="countyBox"></div>
+    <button id="allBtn">Select all</button><button id="noneBtn">Clear</button>
+
+    <div class="range">
+      <h2>Number of species</h2>
+      <label><span>At least</span><b id="spVal"></b></label>
+      <input type="range" id="sp" min="0" value="0">
+      <h2>Number of seedlings</h2>
+      <label><span>At least</span><b id="sdVal"></b></label>
+      <input type="range" id="sd" min="0" step="50" value="0">
+      <h2>Distance to major road</h2>
+      <label><span>No more than</span><b id="dsVal"></b></label>
+      <input type="range" id="ds" min="0" step="0.1">
+    </div>
+    <button class="primary" id="exportBtn">Download filtered CSV</button>
+    <button id="resetBtn">Reset filters</button>
+  </aside>
+
+  <main>
+    <div class="kpis">
+      <div class="kpi"><b id="kN">-</b><span>Nurseries shown</span></div>
+      <div class="kpi"><b id="kSd">-</b><span>Total seedlings</span></div>
+      <div class="kpi"><b id="kSp">-</b><span>Average species per nursery</span></div>
+      <div class="kpi"><b id="kDs">-</b><span>Average km to major road</span></div>
+    </div>
+    <div>
+      <div id="map" style="height:calc(100% - 26px)"></div>
+      <div class="legend">Circle size = seedlings. Distance to road:
+        <span class="dot" style="background:#4d8b3a"></span>under 2 km
+        <span class="dot" style="background:#e0a030"></span>2 to 5 km
+        <span class="dot" style="background:#9a5b34"></span>over 5 km</div>
+    </div>
+    <div class="bottom">
+      <div class="panel"><canvas id="chart"></canvas></div>
+      <div class="panel"><table id="tbl"></table></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+/* ===== 1. Load the CSV (must sit in the same folder as this file) ===== */
+const CSV_FILE = 'tree_nurseries_demo_200.csv';
+let all = [], filtered = [], chart, sortKey = 'nursery_id', sortAsc = true;
+
+const map = L.map('map').setView([0, 34.6], 8);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+const markers = L.layerGroup().addTo(map);
+
+Papa.parse(CSV_FILE, {
+  download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
+  complete: r => { all = r.data; setup(); },
+  error: () => alert('Could not load ' + CSV_FILE + '. Open the page through GitHub Pages or a local server, not by double-clicking.')
+});
+
+/* ===== 2. Build the filter controls from the data ===== */
+const $ = id => document.getElementById(id);
+function setup() {
+  const counties = [...new Set(all.map(d => d.county))].sort();
+  $('countyBox').innerHTML = counties.map(c =>
+    `<label class="chk"><input type="checkbox" value="${c}" checked> ${c}</label>`).join('');
+  $('sp').max = Math.max(...all.map(d => d.num_species));
+  $('sd').max = Math.max(...all.map(d => d.num_seedlings));
+  $('ds').max = Math.ceil(Math.max(...all.map(d => d.dist_to_major_road_km)));
+  resetFilters();
+  document.querySelectorAll('aside input').forEach(el => el.addEventListener('input', update));
+  $('allBtn').onclick = () => { setCounties(true); update(); };
+  $('noneBtn').onclick = () => { setCounties(false); update(); };
+  $('resetBtn').onclick = () => { resetFilters(); update(); };
+  $('exportBtn').onclick = exportCsv;
+  update();
+}
+const setCounties = on => document.querySelectorAll('#countyBox input').forEach(c => c.checked = on);
+function resetFilters() { setCounties(true); $('sp').value = 0; $('sd').value = 0; $('ds').value = $('ds').max; }
+
+/* ===== 3. Apply filters, then redraw everything ===== */
+function update() {
+  const on = [...document.querySelectorAll('#countyBox input:checked')].map(c => c.value);
+  const minSp = +$('sp').value, minSd = +$('sd').value, maxDs = +$('ds').value;
+  $('spVal').textContent = minSp;
+  $('sdVal').textContent = minSd.toLocaleString();
+  $('dsVal').textContent = maxDs + ' km';
+
+  filtered = all.filter(d => on.includes(d.county) && d.num_species >= minSp &&
+                             d.num_seedlings >= minSd && d.dist_to_major_road_km <= maxDs);
+  drawKpis(); drawMap(); drawChart(); drawTable();
+}
+
+function drawKpis() {
+  const n = filtered.length, sum = k => filtered.reduce((s, d) => s + d[k], 0);
+  $('kN').textContent = n;
+  $('kSd').textContent = sum('num_seedlings').toLocaleString();
+  $('kSp').textContent = n ? (sum('num_species') / n).toFixed(1) : '-';
+  $('kDs').textContent = n ? (sum('dist_to_major_road_km') / n).toFixed(1) : '-';
+}
+
+function drawMap() {
+  markers.clearLayers();
+  filtered.forEach(d => {
+    const km = d.dist_to_major_road_km;
+    const color = km < 2 ? '#4d8b3a' : km <= 5 ? '#e0a030' : '#9a5b34';
+    L.circleMarker([d.latitude, d.longitude], {
+      radius: Math.min(5 + Math.sqrt(d.num_seedlings) / 14, 18),
+      color: '#22301f', weight: 1, fillColor: color, fillOpacity: .8
+    }).bindPopup(`<b>${d.nursery_id}</b> (${d.county})<br>Owner: ${d.owner_first_name}<br>
+      <span class="contact"><button onclick="this.hidden=true;this.nextElementSibling.hidden=false">Contact owner</button>
+      <span hidden>
+        <a href="tel:${d.phone}" title="Call ${d.owner_first_name}">&#128222;</a>
+        <a href="sms:${d.phone}" title="Send SMS">&#128172;</a>
+        <a href="https://wa.me/${String(d.phone).replace('+', '')}" target="_blank" rel="noopener" title="WhatsApp">&#128994;</a>
+      </span></span><br>
+      Seedlings: ${d.num_seedlings.toLocaleString()}<br>Species: ${d.num_species}<br>
+      Road distance: ${km} km`).addTo(markers);
+  });
+  if (filtered.length)
+    map.fitBounds(L.latLngBounds(filtered.map(d => [d.latitude, d.longitude])).pad(.1));
+}
+
+function drawChart() {
+  const totals = {};
+  filtered.forEach(d => totals[d.county] = (totals[d.county] || 0) + d.num_seedlings);
+  const labels = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+  const data = labels.map(l => totals[l]);
+  if (chart) chart.destroy();
+  chart = new Chart($('chart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: '#4d8b3a' }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false },
+      title: { display: true, text: 'Seedlings by county' } } }
+  });
+}
+
+function drawTable() {
+  const cols = ['nursery_id', 'county', 'owner_first_name', 'num_seedlings', 'num_species', 'dist_to_major_road_km'];
+  const names = ['ID', 'County', 'Owner', 'Seedlings', 'Species', 'Road km'];
+  const rows = [...filtered].sort((a, b) =>
+    (a[sortKey] > b[sortKey] ? 1 : -1) * (sortAsc ? 1 : -1));
+  $('tbl').innerHTML = '<tr>' + cols.map((c, i) => `<th data-k="${c}">${names[i]}</th>`).join('') + '</tr>' +
+    rows.map(d => '<tr>' + cols.map(c => `<td>${d[c]}</td>`).join('') + '</tr>').join('');
+  document.querySelectorAll('th').forEach(th => th.onclick = () => {
+    sortAsc = sortKey === th.dataset.k ? !sortAsc : true; sortKey = th.dataset.k; drawTable();
+  });
+}
+
+function exportCsv() {
+  // Phone numbers are left out of downloads for data protection
+  const safe = filtered.map(({ phone, ...rest }) => rest);
+  const blob = new Blob([Papa.unparse(safe)], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'filtered_nurseries.csv'; a.click();
+}
+</script>
+</body>
+</html>
